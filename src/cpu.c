@@ -1,5 +1,8 @@
 #include "cpu.h"
 
+
+//dont mean no disrespect but i REALLY dont like att
+
 cpuid_t get_cpuid(u32 level)
 {
 	cpuid_t cpuid = { 0, 0, 0, 0 };

@@ -188,7 +188,7 @@ static int __init init_tvisor(void)
 
 	pr_debug("tvisor: assigned major number[%d]\n", major);
 
-	cls = class_create(THIS_MODULE, DEVICE_NAME);
+	cls = class_create(DEVICE_NAME);
 	device_create(cls, NULL, MKDEV(major, 0), NULL, DEVICE_NAME);
 
 	pr_debug("tvisor: Device created on /dev/%s\n", DEVICE_NAME);
