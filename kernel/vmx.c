@@ -10,6 +10,7 @@
 #include "vm.h"
 #include "vmx.h"
 
+
 extern vm_state_t *VM;
 extern void *VA_GUEST_MEMORY;
 
@@ -42,32 +43,19 @@ static u64 vmptrst(void)
 	return vmcspa;
 }
 
+
+
 static int vmclear(u64 vmcs_region_phys)
 {
-	u64 rflags;
-	asm volatile("vmclear %1; pushfq; popq %0"
-		     : "=q"(rflags)
-		     : "m"(vmcs_region_phys)
-		     : "cc");
 
-	u64 cf, pf, af, zf, sf, of;
-	cf = (rflags >> 0) & 1;
-	pf = (rflags >> 2) & 1;
-	af = (rflags >> 4) & 1;
-	zf = (rflags >> 6) & 1;
-	sf = (rflags >> 7) & 1;
-	of = (rflags >> 11) & 1;
+	uint8_t ret;
 
-	if (cf | pf | af | zf | sf | of) {
-		if (cf) {
-			pr_debug("tvisor: VMfail Invaild\n");
-		} else if (zf) {
-			pr_debug("tvisor: VMfail Invalid(ErrorCode)\n");
-		} else {
-			pr_debug("tvisor: undefined state\n");
-		}
-		return 1;
-	}
+	__asm__ __volatile__ ("vmclear %[pa]; setna %[ret]"
+		: [ret]"=rm"(ret)
+		: [pa]"m"(vmcs_region_phys)
+		: "cc", "memory");
+
+	return ret;
 
 	return 0;
 }
@@ -104,8 +92,11 @@ static int vmptrld(u64 vmcs_region_phys)
 
 int vmlaunch(void)
 {
+	pr_info("vm launch!!!!!\n");
 	u64 rflags;
 	asm volatile("vmlaunch; pushfq; popq %0" : "=q"(rflags));
+
+	pr_info("fail\n");
 
 	u64 cf, pf, af, zf, sf, of;
 	cf = (rflags >> 0) & 1;
@@ -412,6 +403,124 @@ int load_vmcs(vmcs_t *vmcs)
 	return vmptrld(vmcs_phys);
 }
 
+static void* target_page;
+static void* fake_page;
+
+
+//IMAGINE
+__attribute__((optimize("O0")))
+static void loop_test(void) {
+
+	get_cpuid(1);
+	char* target_page_v = target_page;
+	while(true) {
+		
+		//printk("test?");
+		//write
+		*target_page_v = 0x42;
+		//read, swap fake
+		char read_res = *target_page_v;
+		
+		if(read_res == 0x69)
+			break;
+		
+
+	}
+	//for trapping again
+	get_cpuid(1);
+
+	while (true) {
+
+	}
+}
+
+static inline void invept(u64 eptp) {
+    struct invept_desc {
+        u64 eptp;
+        u64 reserved;
+    } desc = {
+        .eptp = eptp,
+        .reserved = 0,
+    };
+	pr_info("invept %llx",eptp);
+
+    // INVEPT type 1 = Single-Context Invalidation
+    uint64_t type = 1;
+
+    asm volatile("invept %[desc], %[type]"
+                 :
+                 : [desc] "m"(desc), [type] "r"(type)
+                 : "memory");
+}
+
+
+static void swap_fake(ept_pointer_t *eptp, ept_pde_2mb_t* pde_2mb) {
+
+
+}
+
+static void swap_real(ept_pointer_t *eptp, ept_pde_2mb_t* pde_2mb) {
+
+
+
+}
+static void page_trap_set(ept_pointer_t *eptp, ept_pde_2mb_t* pde_2mb) {
+	//set to write only
+	pde_2mb->fields.read = 0;
+	pde_2mb->fields.write = 0;
+	pde_2mb->fields.execute = 0;
+
+}
+
+static void page_trap_set_swapback(ept_pointer_t *eptp, ept_pde_2mb_t* pde_2mb) {
+	//set to no access
+	pde_2mb->fields.read = 0;
+	pde_2mb->fields.write = 0;
+	pde_2mb->fields.execute = 0;
+
+}
+
+
+static void setup_page_trap(ept_pointer_t *eptp) {
+	target_page = kmalloc(0x200000, GFP_KERNEL);
+	fake_page = kmalloc(0x200000, GFP_KERNEL);
+	u64 target_pa = __pa(target_page);
+	
+	ept_pde_t* pde = gphys_to_pde(target_pa, eptp);
+	pr_info("target pa %llx, pde %llx", target_pa, *(u64*)pde);
+	page_trap_set(eptp, (ept_pde_2mb_t*)pde);
+	pr_info("target pa %llx, pde %llx", target_pa, *(u64*)pde);
+	ept_pde_t* pde2 = gphys_to_pde(__pa(loop_test), eptp);
+	page_trap_set(eptp, (ept_pde_2mb_t*)pde2);
+	pr_info("target pa2 %llx, pde2 %llx", __pa(loop_test), *pde2);
+	invept(eptp->all);
+
+	
+	
+}
+
+
+
+static void _print_guest_regs(guest_regs_t* regs) {
+	pr_info(
+"	u64 rax; %llx\n"
+"	u64 rcx; %llx\n"
+"	u64 rdx; %llx\n"
+"	u64 rbx; %llx\n"
+"	u64 rsp; %llx\n"
+"	u64 rbp; %llx\n"
+"	u64 rsi; %llx\n"
+"	u64 rdi; %llx\n"
+"	u64 r8; %llx\n"
+"	u64 r9; %llx\n"
+"	u64 r10; %llx\n"
+"	u64 r11; %llx\n"
+"	u64 r12; %llx\n"
+"	u64 r13; %llx\n"
+"	u64 r14; %llx\n"
+"	u64 r15; %llx\n", *regs);
+}
+
 int setup_vmcs(vmcs_t *vmcs, ept_pointer_t *eptp, u64 *vmm_stack)
 {
 	vmwrite(EPT_POINTER, eptp->all); // set EPT Pointer
@@ -503,7 +612,8 @@ int setup_vmcs(vmcs_t *vmcs, ept_pointer_t *eptp, u64 *vmm_stack)
 
 	u64 cr0, cr3, cr4;
 	cr0 = read_cr0();
-	cr3 = setup_sample_guest_page_table(eptp).all; // cr3 = read_cr3();
+	//cr3 = setup_sample_guest_page_table(eptp).all; // cr3 = read_cr3();
+	cr3 = read_cr3();
 	cr4 = read_cr4();
 	pr_debug("tvisor: GUEST_CR0=%llx, GUEST_CR3=%llx, GUEST_CR4=%llx\n",
 		 cr0, cr3, cr4);
@@ -577,9 +687,23 @@ int setup_vmcs(vmcs_t *vmcs, ept_pointer_t *eptp, u64 *vmm_stack)
 	vmwrite(HOST_IA32_SYSENTER_CS, sysenter_cs);
 	vmwrite(HOST_IA32_SYSENTER_EIP, sysenter_eip);
 	vmwrite(HOST_IA32_SYSENTER_ESP, sysenter_esp);
+	char* guest_stack = ((char*)kmalloc(0x1000, GFP_KERNEL)) + 0xff0;
+	u64 guest_rsp, guest_rip;
 
-	vmwrite(GUEST_RSP, (u64)0);
-	vmwrite(GUEST_RIP, (u64)0);
+	guest_rsp = (u64)guest_stack;
+	//guest_rip = __pa(loop_test);
+	guest_rip = (u64)loop_test;
+
+	
+	setup_page_trap(eptp);
+	pr_debug("tvisor: GUEST_RSP=%llx, GUEST_RIP=%llx\n",
+		guest_rsp, guest_rip);
+
+	// pr_debug("tvisor: mapped to host - GUEST_RSP=%llx, GUEST_RIP=%llx\n",
+	// 		gphys_to_hphys(guest_rsp, eptp), gphys_to_hphys(guest_rip, eptp));
+
+	vmwrite(GUEST_RSP, guest_rsp);
+	vmwrite(GUEST_RIP, guest_rip);
 
 	pr_debug("tvisor: HOST_RSP=%llx, HOST_RIP=%llx\n",
 		 ((u64)vmm_stack + VMM_STACK_SIZE - 0x50), (u64)vmexit_handler);
@@ -588,16 +712,76 @@ int setup_vmcs(vmcs_t *vmcs, ept_pointer_t *eptp, u64 *vmm_stack)
 
 	return 0;
 }
+void resume_to_next_instruction(void)
+{
+	char *current_rip = (char *)vmread(GUEST_RIP);
+	u64 exit_instruction_length = (u64)vmread(VM_EXIT_INSTRUCTION_LEN);
+	
+	char *resume_rip = current_rip + exit_instruction_length;
+	pr_info("exit instr len %d, cur rip %llx, new rip %llx", exit_instruction_length, current_rip, resume_rip);
+	vmwrite(GUEST_RIP, (u64)resume_rip);
+}
+
+static void vmexit_on_ept_violation(guest_regs_t *guest_regs) {
+	ept_pointer_t ept_ptr = (ept_pointer_t)vmread(EPT_POINTER); 
+	char *current_rip = (char *)vmread(GUEST_RIP);
+	u64 gpa, gla, qual;
+		gpa = vmread(GUEST_PHYSICAL_ADDRESS);
+		gla = vmread(GUEST_LINEAR_ADDRESS);
+		qual = vmread(EXIT_QUALIFICATION);
+
+		pr_info("EPT Violation: GPA = 0x%llx, GLA = 0x%llx, qual = 0x%llx\n", gpa, gla, qual);
+		ept_pde_t* rip_pde = gphys_to_pde(__pa(current_rip), &ept_ptr);
+		ept_pde_t* gpa_pde = gphys_to_pde(gpa, &ept_ptr);
+		
+		
+		// ept_pte_t* pte_fault = gphys_to_pte(gpa, &ept_ptr);
+		// pr_info("gpa %llx", *pte_fault);
+		pr_info("guest rip %llx, target %llx, pde %llx", current_rip, loop_test, *rip_pde);
+
+		pr_info("EPT TRAP YIPEEEEEEEE 🥳🥳🥳 gpa pde %llx", gpa_pde->all);
+		pr_info("please trap %llx 🥺", __pa(target_page));
+		if(__pa(target_page) == gpa) {
+			ept_pde_2mb_t* pde_target = (ept_pde_2mb_t*)gpa_pde;
+			*(char*)fake_page = 0x69;
+			pr_info("holy shit its happening 🤩🤩");
+			pde_target->fields.read = 1;
+			pde_target->fields.write = 1;
+			pde_target->fields.execute = 0;
+			//time to swap
+			pde_target->fields.page_address = __pa(fake_page) / 0x200000;
+			pr_info("new gpa pde %llx", gpa_pde->all);
+			
+			invept(ept_ptr.all);
+			resume_to_next_instruction();
+			return;
+			//swap out page
+			  
+
+		}
+		*(char*)0 = 0;
+		//gphys_to_pte((u64)current_rip, &ept_ptr)->fields.execute = 1;
+}
+
+
 
 void vmexit_handler_main(guest_regs_t *guest_regs)
 {
+
+	// /_print_guest_regs(guest_regs);
 	u64 exit_reason = vmread(VM_EXIT_REASON);
 
 	u64 exit_qualification = vmread(EXIT_QUALIFICATION);
+	char *current_rip = (char *)vmread(GUEST_RIP);
+	
 
 	pr_info("tvisor: exit reason[%lld]\n", exit_reason & 0xffff);
 	pr_info("tvisor: exit qualification[%lld]\n", exit_qualification);
-
+	ept_pointer_t ept_ptr = (ept_pointer_t)vmread(EPT_POINTER); 
+	u64 host_target = __pa(loop_test);
+		
+	
+	
 	switch (exit_reason) {
 	case EXIT_REASON_VMCLEAR:
 	case EXIT_REASON_VMPTRLD:
@@ -612,25 +796,87 @@ void vmexit_handler_main(guest_regs_t *guest_regs)
 		break;
 	case EXIT_REASON_HLT:
 		pr_info("tvisor: execution of hlt detected...\n");
+		
+		//i will stop putting all my shit here soon i promise
+		/*
+						pt[i].fields.page_address =
+					(u64)(__pa(page) / 0x1000);
+				pt[i].fields.accessed = 0;
+				pt[i].fields.dirty = 0;
+				pt[i].fields.memory_type = 6;
+				pt[i].fields.read = 1;
+				pt[i].fields.write = 1;
+				pt[i].fields.execute = 1;
+				pt[i].fields.execute_for_user_mode = 0;
+				pt[i].fields.ignore_pat = 0;
+				pt[i].fields.ignored1 = 1; // use as used flag
+				pt[i].fields.ignored2 = 0;
+				pt[i].fields.ignored3 = 0;
+				pt[i].fields.ignored4 = 0;
+				pt[i].fields.suppress_ve = 0;
+		*/
+
+		
+		ept_pde_t* pde = gphys_to_pde((u64)current_rip, &ept_ptr);
+		
+		// ept_pte_t* new_pte = alloc_ept_pt();
+		// new_pte->all = 0;
+		// new_pte->fields.page_address = host_target >> 12;
+		// new_pte->fields.memory_type = 6;
+		
+		// new_pte->fields.execute_for_user_mode = 0;
+		// new_pte->fields.ignore_pat = 0;
+
+
+
+		// pde->fields.ept_pt_address = __pa(new_pte) / 0x1000;
+		 
+		// new_pte->fields.read = 1;
+		// new_pte->fields.write = 1;
+		// new_pte->fields.execute = 1;
+		// new_pte->fields.execute_for_user_mode = 1;
+		
+
+		//*(char*)0 = 1;
 		// restore_vmxoff_state(VM->rsp, VM->rbp);
 		break;
 	case EXIT_REASON_TRIPLE_FAULT:
 		pr_info("tvisor: triple fault detected...\n");
+		*(char*)0 = 1;
+		break;
+	case EXIT_REASON_EPT_VIOLATION:
+		vmexit_on_ept_violation(guest_regs);
+		return;
+
+	case EXIT_REASON_EPT_MISCONFIG:
+		u64 gpa = vmread(GUEST_PHYSICAL_ADDRESS);
+		u64 gla = vmread(GUEST_LINEAR_ADDRESS);
+		u64 qual = vmread(EXIT_QUALIFICATION);
+
+		pr_info("EPT Misconfig: GPA = 0x%llx, GLA = 0x%llx, qual = 0x%llx\n", gpa, gla, qual);
+		pr_info("misconfig :(");
+		*(char*)0 = 0;
+		break;
+
+	case EXIT_REASON_CPUID:
+		
+		pr_info("tvisor: TRAPPING CPUID!!!\n");
+		ept_pde_2mb_t* pde2 = (ept_pde_2mb_t*)gphys_to_pde(__pa(current_rip), &ept_ptr);
+		//pde2++;
+		pde2->fields.execute = 0;
+		pr_info("pde %llx large page %llx\n", pde2->all, pde2->fields.large_page);
+		pr_info("guest rip va %llx, pa %llx", current_rip, __pa(current_rip));
+		invept(ept_ptr.all);
+		resume_to_next_instruction();
 		break;
 	default:
 		pr_info("tvisor: execution of other reason detected...\n");
 		break;
 	}
+	
 }
 
-void resume_to_next_instruction(void)
-{
-	char *current_rip = (char *)vmread(GUEST_RIP);
-	u64 exit_instruction_length = (u64)vmread(VM_EXIT_INSTRUCTION_LEN);
 
-	char *resume_rip = current_rip + exit_instruction_length;
-	vmwrite(GUEST_RIP, (u64)resume_rip);
-}
 
 void vm_resumer(void)
 {

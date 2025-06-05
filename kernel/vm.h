@@ -1,7 +1,7 @@
 #pragma once
 
 #include <linux/types.h>
-
+#define pr_debug pr_info
 #include "ept.h"
 #include "vmx.h"
 

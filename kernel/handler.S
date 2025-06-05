@@ -20,8 +20,12 @@ vmexit_handler:
     push rcx
     push rax
 
-    mov rcx, rsp # guest regs
+    #mov rcx, rsp # guest regs
+    #this is such a L im keeping the original
+    mov rdi, rsp
     sub rsp, 0x28
+    
+
 
     call vmexit_handler_main
 

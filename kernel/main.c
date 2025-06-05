@@ -109,6 +109,73 @@ static ssize_t tvisor_read(struct file *filp, char __user *ubuf, size_t count,
 	return len;
 }
 
+static int _hv_enable(void);
+static int _hv_disable(void);
+static int _hv_create(void);
+static int _hv_destroy(void);
+static int _hv_launch(void);
+
+static int _hv_enable() {
+	if(!VM) {
+		pr_info("tvisor: please create VM\n");
+		return -1;
+	}
+	int err = enable_vmx_on_each_cpu_mask(0, VM->vmxon_region);
+	if (err) {
+		pr_alert("tvisor: failed to enable VMX[%d]\n", err);
+		return -1;
+	} 
+	TVISOR_STATE.is_vmx_enabled = 1;
+	pr_info("tvisor: enable VMX!\n");
+	return 0;
+	
+
+}
+
+static int _hv_disable() {
+	if (TVISOR_STATE.is_vmx_enabled) {
+		int err = disable_vmx_on_each_cpu_mask(0);
+		if (err) {
+			pr_alert("tvisor: failed to disable VMX\n");
+		} else {
+			TVISOR_STATE.is_vmx_enabled = 0;
+			pr_info("tvisor: disable VMX!\n");
+		}
+	} else {
+		pr_info("tvisor: vmx is not enabled now\n");
+	}
+	return 0;
+}
+
+
+static int _hv_create() {
+	VM = create_vm();
+		if (VM == NULL) {
+			pr_alert("tvisor: failed to create_vm\n");
+		} else {
+			pr_info("tvisor: create VM\n");
+		}
+	return 0;
+}
+
+
+static int _hv_launch() {
+	if (TVISOR_STATE.is_vmx_enabled) {
+		if (VM == NULL) {
+			pr_alert("tvisor: failed to create_vm\n");
+		} else {
+			launch_vm(0, VM); // Launch VM on CPU 0
+		}
+	} else {
+		pr_info("tvisor: VMX is not enabled\n");
+	}
+	return 0;
+}
+static int _hv_destroy() {
+	destroy_vm(VM);
+	pr_info("tvisor: destroy VM\n");
+	return 0;
+}
 static ssize_t tvisor_write(struct file *filp, const char __user *ubuf,
 			    size_t count, loff_t *offset)
 {
@@ -126,51 +193,15 @@ static ssize_t tvisor_write(struct file *filp, const char __user *ubuf,
 	pr_info("tvisor: write[%s]\n", kbuf);
 
 	if (!strncmp(kbuf, enable, strlen(enable))) {
-		if (VM == NULL) {
-			pr_info("tvisor: please create VM\n");
-		} else {
-			int err = enable_vmx_on_each_cpu_mask(0,
-							      VM->vmxon_region);
-			if (err) {
-				pr_alert("tvisor: failed to enable VMX[%d]\n",
-					 err);
-			} else {
-				TVISOR_STATE.is_vmx_enabled = 1;
-				pr_info("tvisor: enable VMX!\n");
-			}
-		}
+		_hv_enable();
 	} else if (!strncmp(kbuf, disable, strlen(disable))) {
-		if (TVISOR_STATE.is_vmx_enabled) {
-			int err = disable_vmx_on_each_cpu_mask(0);
-			if (err) {
-				pr_alert("tvisor: failed to disable VMX\n");
-			} else {
-				TVISOR_STATE.is_vmx_enabled = 0;
-				pr_info("tvisor: disable VMX!\n");
-			}
-		} else {
-			pr_info("tvisor: vmx is not enabled now\n");
-		}
+		_hv_disable();
 	} else if (!strncmp(kbuf, create, strlen(create))) {
-		VM = create_vm();
-		if (VM == NULL) {
-			pr_alert("tvisor: failed to create_vm\n");
-		} else {
-			pr_info("tvisor: create VM\n");
-		}
+		_hv_create();
 	} else if (!strncmp(kbuf, destroy, strlen(destroy))) {
-		destroy_vm(VM);
-		pr_info("tvisor: destroy VM\n");
+		_hv_destroy();
 	} else if (!strncmp(kbuf, launch, strlen(launch))) {
-		if (TVISOR_STATE.is_vmx_enabled) {
-			if (VM == NULL) {
-				pr_alert("tvisor: failed to create_vm\n");
-			} else {
-				launch_vm(0, VM); // Launch VM on CPU 0
-			}
-		} else {
-			pr_info("tvisor: VMX is not enabled\n");
-		}
+		_hv_launch();
 	}
 
 	return count;
@@ -186,7 +217,7 @@ static int __init init_tvisor(void)
 		return major;
 	}
 
-	pr_debug("tvisor: assigned major number[%d]\n", major);
+	pr_info("tvisor: assigned major number[%d]\n", major);
 
 	cls = class_create(DEVICE_NAME);
 	device_create(cls, NULL, MKDEV(major, 0), NULL, DEVICE_NAME);

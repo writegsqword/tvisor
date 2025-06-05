@@ -4,6 +4,8 @@
 #include <linux/slab.h> /* Needed for kmalloc */
 #include <linux/smp.h> /* Needed for on_each_cpu_mask */
 
+#include <linux/io.h>
+
 #include "vm.h"
 
 struct tvisor_state {
@@ -15,6 +17,7 @@ extern struct tvisor_state TVISOR_STATE;
 
 static void __launch_vm(void *info)
 {
+
 	vm_state_t *vm = (vm_state_t *)info;
 
 	if (clear_vmcs_state(vm->vmcs_region)) {
@@ -26,7 +29,6 @@ static void __launch_vm(void *info)
 		pr_info("tvisor: failed to load vmcs\n");
 		return;
 	}
-
 	setup_vmcs(vm->vmcs_region, vm->ept_pointer, vm->vmm_stack);
 
 	save_vmxoff_state(&(vm->rsp), &(vm->rbp));
@@ -137,7 +139,16 @@ cr3_t setup_sample_guest_page_table(ept_pointer_t *eptp)
 	// const u64 pdpt_gphys = 0x2000;
 	// const u64 pd_gphys = 0x3000;
 	// const u64 pt_gphys = 0x4000;
+	// cr3_t cr3;
+	// cr3.all = 0;
+	// char* v_pt_block = kmalloc(0x1000 * 4,GPF_KERNEL);
+	// pml4e_t *va_pml4 = v_pt_block;
+	// pdpte_t *va_pdpt = v_pt_block + 0x1000;
+	// pde_t *va_pd = v_pt_block + 0x1000 * 2;
+	// __pte_t *va_pt = v_pt_block + 0x1000 * 3;
 
+	// cr3.fields.pml4_address = 
+	// return cr3;
 	u64 pa_ept_pml4 = eptp->fields.ept_pml4_table_address << 12;
 	ept_pml4e_t *va_ept_pml4 = __va(pa_ept_pml4);
 	u64 pa_ept_pdpt = va_ept_pml4[0].fields.ept_pdpt_address << 12;

@@ -296,3 +296,4 @@ int vmlaunch(void);
 u64 vmread(enum VMCS_FIELDS field);
 void vmwrite(enum VMCS_FIELDS field, u64 val);
 int vmxoff(void);
+
