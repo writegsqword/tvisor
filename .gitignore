@@ -6,3 +6,7 @@
 *.mod.*
 *.ko
 .vscode/
+#^ lol
+debug/
+
+
